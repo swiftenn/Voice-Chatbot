@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Voice Chat</title>
+    <style>
+        .message {
+            margin-bottom: 10px;
+            padding: 10px;
+            border-radius: 4px;
+            line-height: 1.5; /* Improves readability */
+            white-space: pre-wrap; /* Ensures long lines wrap */
+        }
+
+        .message.user {
+            text-align: right;
+            color: #4CAF50;
+            background-color: #e8f5e9; /* Light green background for user messages */
+        }
+
+        .message.assistant {
+            text-align: left;
+            color: #333;
+            background-color: #f9f9f9; /* Light gray background for assistant messages */
+        }
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f9;
+            color: #333;
+        }
+        header {
+            background-color: #4CAF50;
+            color: white;
+            padding: 1rem;
+            text-align: center;
+        }
+        .container {
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        
+        .auth-form {
+            max-width: 400px;
+            align-self: center;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .auth-form input {
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        .auth-form button {
+            padding: 10px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .auth-form button:hover {
+            background-color: #45a049;
+        }
+        .chat-box {
+            height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+        }
+        .message {
+            margin-bottom: 10px;
+        }
+        .message.user {
+            text-align: right;
+            color: #4CAF50;
+        }
+        .message.assistant {
+            text-align: left;
+            color: #333;
+        }
+        .controls {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+        }
+        .controls button {
+            flex: 1;
+            padding: 10px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .controls button:hover {
+            background-color: #45a049;
+        }
+        .token-balance {
+            text-align: center;
+            margin-top: 10px;
+            font-size: 14px;
+            color: #555;
+        }
+        .hidden {
+            display: none;
+        }
+        #processing-indicator {
+            text-align: center;
+            margin-top: 10px;
+            font-size: 14px;
+            color: #4CAF50;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #4CAF50;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            margin-left: 10px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        🎤 AI Voice Chat
+    </header>
+    <div class="container">
+        <!-- Authentication Section -->
+        <div id="auth-section">
+            <h2>Login</h2>
+            <form id="login-form" class="auth-form">
+                <input type="text" id="login-username" placeholder="Username" required />
+                <input type="password" id="login-password" placeholder="Password" required />
+                <button type="submit">Login</button>
+            </form>
+            <h2>Register</h2>
+            <form id="register-form" class="auth-form">
+                <input type="text" id="register-username" placeholder="Username" required />
+                <input type="password" id="register-password" placeholder="Password" required />
+                <button type="submit">Register</button>
+            </form>
+        </div>
+
+        <!-- Chat Interface -->
+        <div id="chat-section" class="hidden">
+            <div class="token-balance">Tokens: ₹<span id="token-balance">0</span></div>
+            <div class="chat-box" id="chat-box"></div>
+            <div class="controls">
+                <button id="start-recording">🎤 Start Recording</button>
+                <button id="stop-recording" class="hidden">⏹️ Stop Recording</button>
+                <button id="upload-audio">📂 Upload Audio</button>
+                <button id="purchase-tokens">💵 Purchase Tokens</button>
+            </div>
+            <div id="processing-indicator" class="hidden">
+                <span>Processing...</span>
+                <div class="spinner"></div>
+            </div>
+        </div>
+    </div>
+    <script>
+        // Variables
+        let tokenBalance = 0;
+        let accessToken = null;
+        let socket;
+        let mediaRecorder;
+        let audioChunks = [];
+
+        // DOM Elements
+        const authSection = document.getElementById('auth-section');
+        const chatSection = document.getElementById('chat-section');
+        const tokenBalanceDisplay = document.getElementById('token-balance');
+        const chatBox = document.getElementById('chat-box');
+        const loginForm = document.getElementById('login-form');
+        const registerForm = document.getElementById('register-form');
+        const startRecordingButton = document.getElementById('start-recording');
+        const stopRecordingButton = document.getElementById('stop-recording');
+        const uploadAudioButton = document.getElementById('upload-audio');
+        const purchaseTokensButton = document.getElementById('purchase-tokens');
+        const processingIndicator = document.getElementById('processing-indicator');
+        const backendBaseUrl = window.location.hostname + ":8000";
+
+
+        // Helper Functions
+        function showMessage(sender, message) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${sender}`;
+            // Use <pre> to preserve formatting
+            const preElement = document.createElement('pre');
+            preElement.style.whiteSpace = 'pre-wrap'; // Ensures long lines wrap
+            preElement.textContent = message;
+            messageDiv.appendChild(preElement);
+            chatBox.appendChild(messageDiv);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        function updateTokenBalance(balance) {
+            tokenBalance = balance;
+            tokenBalanceDisplay.textContent = balance.toFixed(2);
+        }
+
+        function toggleAuthChat() {
+            authSection.classList.toggle('hidden');
+            chatSection.classList.toggle('hidden');
+        }
+
+        function connectWebSocket() {
+            const token = accessToken; // Use the user's access token
+            socket = new WebSocket(`ws://${backendBaseUrl}/ws?token=${encodeURIComponent(token)}`);
+
+
+            socket.onopen = () => {
+                console.log("WebSocket connection established.");
+            };
+
+            socket.onmessage = (event) => {
+               if (typeof event.data === "string") {
+                    const data = JSON.parse(event.data);
+                    if (data.text) {
+                        showMessage("user", data.text); // Display user's transcribed text
+                    } else if (data.response) {
+                        showMessage("assistant", data.response); // Display assistant's response
+                    } else if (data.error) {
+                        alert(data.error); // Handle errors
+                    }
+                 processingIndicator.classList.add('hidden'); // Hide processing indicator
+                 } else if (event.data instanceof Blob) {
+                const audioUrl = URL.createObjectURL(event.data);
+                const audioElement = document.createElement('audio');
+                audioElement.src = audioUrl;
+                audioElement.controls = true;
+                audioElement.autoplay = true; // Automatically play the audio
+                chatBox.appendChild(audioElement);
+                chatBox.scrollTop = chatBox.scrollHeight;
+                processingIndicator.classList.add('hidden'); // Hide processing indicator
+
+        // Optional: Remove the audio element after it finishes playing
+        audioElement.onended = () => {
+            chatBox.removeChild(audioElement);
+                };
+            }
+        };
+
+            socket.onclose = () => {
+                console.log("WebSocket connection closed.");
+            };
+        }
+
+        // API Calls
+        async function fetchTokenBalance() {
+            try {
+                const response = await fetch('http://${backendBaseUrl}/token-balance', {
+                    method: 'GET',
+                    headers: { Authorization: `Bearer ${accessToken}` },
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                updateTokenBalance(data.balance);
+            } catch (error) {
+                console.error('Failed to fetch token balance:', error);
+            }
+        }
+
+        async function purchaseTokens(amount) {
+            try {
+                const response = await fetch('http://${backendBaseUrl}/purchase-tokens', {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${accessToken}`,
+                    },
+                    body: JSON.stringify({ amount }),
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                alert(data.message);
+                fetchTokenBalance();
+            } catch (error) {
+                console.error('Failed to purchase tokens:', error);
+            }
+        }
+
+        // Event Listeners
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = document.getElementById('login-username').value;
+            const password = document.getElementById('login-password').value;
+
+            const response = await fetch('http://${backendBaseUrl}/token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: `username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`,
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                accessToken = data.access_token;
+                toggleAuthChat();
+                fetchTokenBalance();
+
+                // Connect to WebSocket after successful login
+                connectWebSocket();
+            } else {
+                alert('Login failed. Please check your credentials.');
+            }
+        });
+
+        registerForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = document.getElementById('register-username').value;
+            const password = document.getElementById('register-password').value;
+
+            const response = await fetch('http://${backendBaseUrl}/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: `username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`,
+            });
+
+            if (response.ok) {
+                alert('Registration successful! Please log in.');
+            } else {
+                alert('Registration failed. Username may already exist.');
+            }
+        });
+
+        purchaseTokensButton.addEventListener('click', () => {
+            const amount = prompt('Enter the number of tokens to purchase:');
+            if (amount && !isNaN(amount)) {
+                purchaseTokens(parseFloat(amount));
+            }
+        });
+
+        
+// Recording Functionality
+startRecordingButton.addEventListener('click', async () => {
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+        alert("WebSocket connection not established.");
+        return;
+    }
+
+    // Request access to the microphone and initialize a new MediaRecorder instance
+    navigator.mediaDevices.getUserMedia({ audio: true })
+        .then((stream) => {
+            mediaRecorder = new MediaRecorder(stream);
+
+            mediaRecorder.ondataavailable = (event) => {
+                audioChunks.push(event.data);
+            };
+
+            mediaRecorder.onstop = () => {
+                const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                audioChunks = [];
+
+                // Convert the Blob to an ArrayBuffer
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const audioBytes = new Uint8Array(reader.result);
+                    socket.send(audioBytes); // Send the recorded audio to the WebSocket server
+                };
+                reader.readAsArrayBuffer(audioBlob);
+
+                // Stop the microphone stream to release resources
+                stream.getTracks().forEach(track => track.stop());
+            };
+
+            mediaRecorder.start();
+            startRecordingButton.classList.add('hidden');
+            stopRecordingButton.classList.remove('hidden');
+            processingIndicator.classList.remove('hidden'); // Show processing indicator
+        })
+        .catch((error) => {
+            console.error("Error accessing microphone:", error);
+            alert("Failed to access microphone. Please check permissions.");
+        });
+});
+
+stopRecordingButton.addEventListener('click', () => {
+    if (mediaRecorder && mediaRecorder.state === "recording") {
+        mediaRecorder.stop();
+        startRecordingButton.classList.remove('hidden');
+        stopRecordingButton.classList.add('hidden');
+    }
+});
+
+        // Upload Audio Functionality
+        uploadAudioButton.addEventListener('click', async () => {
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                alert("WebSocket connection not established.");
+                return;
+            }
+
+            // Open file picker to select an audio file
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'audio/*';
+            input.onchange = async (event) => {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                // Read the file as an ArrayBuffer
+                const reader = new FileReader();
+                reader.onload = async () => {
+                    const audioBytes = new Uint8Array(reader.result);
+
+                    // Show processing indicator
+                    processingIndicator.classList.remove('hidden');
+
+                    // Send the audio bytes to the WebSocket server
+                    socket.send(audioBytes);
+                };
+                reader.readAsArrayBuffer(file);
+            };
+            input.click();
+        });
+    </script>
+</body>
+</html>
