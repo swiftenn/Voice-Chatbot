@@ -1,0 +1,33 @@
+# --- PYTHON ---
+venv/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyd
+*.so
+*.egg
+*.egg-info/
+pip-wheel-metadata/
+
+# --- ENV FILES ---
+.env
+.env.*
+
+# --- DOCKER ---
+*.log
+docker-data/
+
+# --- OS / MISC ---
+.DS_Store
+Thumbs.db
+
+# --- IDE FILES ---
+.vscode/
+.idea/
+*.swp
+
+# --- FRONTEND ---
+node_modules/
+dist/
+build/
